@@ -176,26 +176,25 @@ class M1System:
             memory_confidence = max(0.0, 1.0 - mean_err / 0.5)
             region.memory_bias = memory_confidence * self.memory_strength
 
-        # --- ИСПРАВЛЕННЫЙ Denoising: приоритизация лучших примеров ---
+        # --- Denoising: применяем long_memory как корректор входов ---
         # Для каждого региона проверяем наличие положительного/негативного шаблона
         cleaned_region_signals = []
-        # thresholds and caps - ИСПРАВЛЕННЫЕ ПАРАМЕТРЫ
+        # thresholds and caps
         pos_min_sim = 0.05  # minimal similarity to consider positive pull
-        neg_penalty_scale = 0.2  # УМЕНЬШИЛИ влияние негативных (было 0.3)
-        max_blend = 0.98  # УВЕЛИЧИЛИ максимальное влияние позитивных (было 0.95)
+        neg_penalty_scale = 0.3  # negatives produce only light penalty
+        max_blend = 0.95
 
         for i, obs in enumerate(region_signals):
             cleaned = obs.copy()
             lm_list = self.long_memory[i]
             mem_conf = getattr(self.regions[i], 'memory_bias', 0.0)
 
-            # ИСПРАВЛЕНИЕ 1: Найти ЛУЧШИЙ позитивный пример (по ошибке)
-            best_positive = None
+            # find positive and negatives
+            positive = None
             negatives = []
             for e in lm_list:
                 if e.get('type') == 'positive':
-                    if best_positive is None or e.get('error', float('inf')) < best_positive.get('error', float('inf')):
-                        best_positive = e
+                    positive = e
                 else:
                     negatives.append(e)
 
@@ -209,52 +208,35 @@ class M1System:
                 except Exception:
                     return 0.0
 
-            # ИСПРАВЛЕНИЕ 2: Усиленное влияние ЛУЧШЕГО позитивного примера
-            if best_positive is not None and 'template' in best_positive:
-                tpl = best_positive['template']
+            # Positive anchor: pull towards positive template depending on similarity and confidence
+            if positive is not None and 'template' in positive:
+                tpl = positive['template']
                 sim_pos = _sim(obs, tpl)
                 if sim_pos > 0.0:
-                    # УВЕЛИЧИВАЕМ вес лучшего примера в 3 раза!
-                    enhanced_weight = float(best_positive.get('weight', 1.0)) * mem_conf * 3.0
-                    quality_bonus = max(0.0, 1.0 - best_positive.get('error', 1.0))  # бонус за качество
-                    
-                    alpha = min(max_blend, enhanced_weight * sim_pos * (1.0 + quality_bonus))
+                    weight = float(positive.get('weight', 1.0)) * mem_conf
+                    # even moderate similarity should pull input toward template
+                    alpha = min(max_blend, weight * sim_pos)
                     cleaned = (1.0 - alpha) * obs + alpha * tpl
-                    
-                    # Логирование для отладки
-                    if self.step_count % 50 == 0:
-                        print(f"[MEMORY] Регион {i}: используем лучший пример (ошибка={best_positive.get('error', 0):.4f}, alpha={alpha:.3f})")
 
-            # ИСПРАВЛЕНИЕ 3: Выбираем наиболее релевантный негативный пример
+            # Negative experience: small suppressive bias if matches
             if negatives:
-                # Сортируем негативные по релевантности (similarity * recency)
-                scored_negatives = []
-                for neg in negatives:
-                    if 'template' in neg:
-                        sim = _sim(obs, neg['template'])
-                        recency = 1.0 / (self.step_count - neg.get('ts', 0) + 1)
-                        score = sim * recency
-                        scored_negatives.append((score, neg))
-                
-                if scored_negatives:
-                    # Берем наиболее релевантный негативный
-                    _, best_negative = max(scored_negatives, key=lambda x: x[0])
-                    
-                    tpln = best_negative['template']
+                # use most recent negative (first in list)
+                neg = negatives[0]
+                if neg is not None and 'template' in neg:
+                    tpln = neg['template']
                     sim_neg = _sim(obs, tpln)
                     if sim_neg > 0.0:
-                        # УМЕНЬШИЛИ влияние негативных примеров
-                        penalty = min(0.5, neg_penalty_scale * float(best_negative.get('weight', 0.5)) * mem_conf * sim_neg)
+                        # light penalty: scale down signal slightly toward zero
+                        penalty = min(0.9, neg_penalty_scale * float(neg.get('weight', 0.5)) * mem_conf * sim_neg)
                         cleaned = cleaned * (1.0 - penalty)
 
-            # ИСПРАВЛЕНИЕ 4: Слабое притяжение к лучшему позитивному даже при низкой схожести
-            if best_positive is not None and 'template' in best_positive:
-                tpl = best_positive['template']
+            # If no confident positive match but a positive template exists, still bias slightly towards it
+            if positive is not None and 'template' in positive:
+                tpl = positive['template']
                 sim_pos = _sim(obs, tpl)
                 if sim_pos < pos_min_sim:
-                    # Увеличиваем слабое притяжение к лучшему примеру
-                    quality_factor = max(0.1, 1.0 - best_positive.get('error', 1.0))
-                    weak_alpha = min(0.4, 0.3 * mem_conf * float(best_positive.get('weight',1.0)) * quality_factor)
+                    # weak exploratory pull to search for familiar shape
+                    weak_alpha = min(0.2, 0.2 * mem_conf * float(positive.get('weight',1.0)))
                     cleaned = (1.0 - weak_alpha) * cleaned + weak_alpha * tpl
 
             cleaned_region_signals.append(cleaned)
