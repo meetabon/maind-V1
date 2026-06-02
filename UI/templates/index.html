@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>M1 System Control - SDR Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { background-color: #131314; color: #e3e3e3; font-family: 'Segoe UI', sans-serif; }
+        .sidebar { background-color: #1e1f20; width: 260px; }
+        .card { background-color: #1e1f20; border-radius: 12px; padding: 20px; }
+        .accent { color: #8ab4f8; }
+    </style>
+</head>
+<body class="flex h-screen">
+    <!-- Sidebar -->
+    <div class="sidebar h-full flex flex-col p-4">
+        <div class="text-2xl font-bold mb-8 accent">M1 Controller</div>
+        <nav class="flex-grow">
+            <ul class="space-y-4">
+                <li class="hover:text-blue-400 cursor-pointer">Dashboard</li>
+                <li class="hover:text-blue-400 cursor-pointer">Scheduler</li>
+                <li class="hover:text-blue-400 cursor-pointer">Memory Logs</li>
+                <li class="hover:text-blue-400 cursor-pointer">Settings</li>
+            </ul>
+        </nav>
+        <div class="mt-auto pt-4 border-t border-gray-700">
+            <div class="text-sm">Status: <span class="text-green-500">Active</span></div>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <main class="flex-grow p-8 overflow-y-auto">
+        <header class="flex justify-between items-center mb-8">
+            <h1 class="text-3xl font-medium">SDR Activity Monitor</h1>
+            <div class="bg-gray-800 px-4 py-2 rounded-lg">Energy: <span id="energy-val" class="accent">0</span></div>
+        </header>
+
+        <!-- Metrics Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+            <div class="card">
+                <h3 class="text-gray-400 mb-2">Layer -1 (Letters)</h3>
+                <div class="text-4xl font-bold" id="act-m1">0</div>
+                <div class="text-xs text-gray-500 mt-2">Sparsity: 3-15 / 32</div>
+            </div>
+            <div class="card">
+                <h3 class="text-gray-400 mb-2">Layer 0 (Words)</h3>
+                <div class="text-4xl font-bold" id="act-0">0</div>
+                <div class="text-xs text-gray-500 mt-2">Sparsity: 3-30 / 64</div>
+            </div>
+            <div class="card">
+                <h3 class="text-gray-400 mb-2">Layer +1 (Phrases)</h3>
+                <div class="text-4xl font-bold" id="act-p1">0</div>
+                <div class="text-xs text-gray-500 mt-2">Sparsity: 3-60 / 124</div>
+            </div>
+        </div>
+
+        <!-- Chart Section -->
+        <div class="card h-96">
+            <canvas id="activityChart"></canvas>
+        </div>
+
+        <!-- Scheduler Form -->
+        <div class="mt-12 card max-w-xl">
+            <h2 class="text-xl font-bold mb-4 accent">Task Scheduler</h2>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm text-gray-400 mb-1">Target Instruction (e.g. "Parse Neural Networks")</label>
+                    <input type="text" id="task-input" class="w-full bg-gray-900 border border-gray-700 rounded p-2 focus:outline-none focus:border-blue-500">
+                </div>
+                <button onclick="scheduleTask()" class="bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded font-medium transition">Schedule Training</button>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // Chart.js init
+        const ctx = document.getElementById('activityChart').getContext('2d');
+        const chart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Total SDR Activity',
+                    borderColor: '#8ab4f8',
+                    data: [],
+                    tension: 0.4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: { grid: { color: '#333' } },
+                    x: { grid: { display: false } }
+                }
+            }
+        });
+
+        async function updateMetrics() {
+            try {
+                const res = await fetch('/api/metrics');
+                const data = await res.json();
+
+                document.getElementById('act-m1').innerText = data.layers.m1;
+                document.getElementById('act-0').innerText = data.layers['0'];
+                document.getElementById('act-p1').innerText = data.layers.p1;
+                document.getElementById('energy-val').innerText = data.energy.toFixed(2);
+
+                // Update Chart
+                if (chart.data.labels.length > 20) {
+                    chart.data.labels.shift();
+                    chart.data.datasets[0].data.shift();
+                }
+                chart.data.labels.push(data.step);
+                const totalAct = Object.values(data.layers).reduce((a, b) => a + b, 0);
+                chart.data.datasets[0].data.push(totalAct);
+                chart.update();
+            } catch (e) {}
+        }
+
+        async function scheduleTask() {
+            const instr = document.getElementById('task-input').value;
+            await fetch('/api/schedule', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({instruction: instr, time: new Date().toISOString()})
+            });
+            alert('Task Scheduled!');
+        }
+
+        setInterval(updateMetrics, 1000);
+    </script>
+</body>
+</html>

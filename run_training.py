@@ -7,6 +7,7 @@ sys.path.append(os.path.join(os.getcwd(), 'm1_v11'))
 
 from system import M1System
 from Learning.streamer import InternetStreamer
+from Learning.scheduler import TaskScheduler
 from logger import SimulationLogger
 
 def main():
@@ -15,11 +16,18 @@ def main():
     # Инициализация систем
     system = M1System()
     streamer = InternetStreamer()
+    scheduler = TaskScheduler()
     logger = SimulationLogger()
 
     max_steps = 1000
 
     for step in range(max_steps):
+        # 0. Проверка планировщика
+        new_task = scheduler.check_for_new_tasks()
+        if new_task:
+            print(f"ПЛАНИРОВЩИК: Новое задание - {new_task['instruction']}")
+            # В реальной системе здесь бы обновлялись URL стримера
+
         # 1. Получаем SDR токен от Учителя
         env_input, char = streamer.get_next_char_sdr()
 
