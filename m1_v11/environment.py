@@ -4,56 +4,6 @@ Environment - 3D среда с динамическими изменениями
 """
 
 import numpy as np
-import requests
-from bs4 import BeautifulSoup
-import re
-
-class InternetStreamer:
-    def __init__(self):
-        self.urls = [
-            "https://ru.wikipedia.org/wiki/Нейрон",
-            "https://ru.wikipedia.org/wiki/Искусственный_интеллект",
-            "https://habr.com/ru/articles/731174/"
-        ]
-        self.text_buffer = ""
-        self.char_index = 0
-        self._load_next_url()
-
-    def _load_next_url(self):
-        if not self.urls:
-            return
-        url = self.urls.pop(0)
-        try:
-            response = requests.get(url, timeout=5)
-            soup = BeautifulSoup(response.text, 'html.parser')
-            # Убираем скрипты и стили
-            for script in soup(["script", "style"]):
-                script.decompose()
-            text = soup.get_text()
-            # Очистка текста
-            text = re.sub(r'\s+', ' ', text)
-            self.text_buffer += text
-        except Exception as e:
-            print(f"Error loading {url}: {e}")
-
-    def get_next_char_sdr(self):
-        """Возвращает SDR для следующего символа (упрощенно 512 бит)"""
-        if not self.text_buffer:
-            self._load_next_url()
-            if not self.text_buffer:
-                return np.zeros(512)
-
-        # Берем первый символ и сразу удаляем его из буфера (Streaming)
-        char = self.text_buffer[0]
-        self.text_buffer = self.text_buffer[1:]
-
-        # Кодируем символ в SDR (512 бит)
-        # Для простоты используем хеш символа для выбора активных битов
-        sdr = np.zeros(512)
-        np.random.seed(ord(char))
-        active_indices = np.random.choice(512, 15, replace=False)
-        sdr[active_indices] = 1
-        return sdr
 
 class Environment:
     def __init__(self, size=(8, 8, 8)):
@@ -61,7 +11,6 @@ class Environment:
         self.size = size
         self.space = np.random.choice([-1, 0, 1], size=size)
         self.step_count = 0
-        self.streamer = InternetStreamer()
 
         # Параметры динамики
         self.drift_interval = 100  # медленный дрейф каждые 100 шагов

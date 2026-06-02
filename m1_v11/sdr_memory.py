@@ -1,4 +1,14 @@
 import numpy as np
+from dataclasses import dataclass
+
+@dataclass
+class MemoryLink:
+    """Низкоуровневая структура связи"""
+    target_neuron_id: int  # адрес связанного нейрона
+    link_strength: int = 1  # РЕЗЕРВ: сила связи (пока 1)
+    time_marker: int = 0    # РЕЗЕРВ: метка времени (пока 0)
+    table_marker: int = 32  # маркер разрядности таблицы (32, 64, 128)
+    reserved_meta: int = 0  # РЕЗЕРВ: тип сигнала
 
 class SDRLayer:
     def __init__(self, name, size, min_active, max_active, input_dim=None):
@@ -18,18 +28,22 @@ class SDRLayer:
         # Состояние активации (SDR)
         self.activations = np.zeros(size)
 
-        # Проксимальные веса (восходящие)
+        # Вместо матриц весов используем списки MemoryLink для каждого нейрона
+        self.proximal_links = {i: [] for i in range(size)}
+        self.distal_links = {i: [] for i in range(size)}
+        self.top_down_links = {i: [] for i in range(size)}
+
+        # Для обратной совместимости и простоты математики в этой версии
+        # будем пока использовать разреженные матрицы.
+        # ВАЖНО: Инициализируем небольшими случайными значениями для "старта" обучения.
+        self.input_dim = input_dim
         if input_dim:
-            self.proximal_weights = np.random.uniform(0, 0.1, (size, input_dim))
+            self.proximal_weights = np.random.uniform(0, 0.01, (size, input_dim))
         else:
             self.proximal_weights = None
 
-        # Дистальные веса (латеральные внутри слоя для временной памяти)
-        self.distal_weights = np.random.uniform(0, 0.05, (size, size))
-        np.fill_diagonal(self.distal_weights, 0)
-
-        # Обратные (дистальные сверху-вниз) веса для предсказания (contextual feedback)
-        self.top_down_weights = None  # Инициализируется в системе при наличии верхнего слоя
+        self.distal_weights = np.random.uniform(0, 0.01, (size, size))
+        self.top_down_weights = None # Будет инициализирован как матрица
 
         # Маска предсказания (predictive state)
         self.predictive_state = np.zeros(size)
@@ -38,12 +52,15 @@ class SDRLayer:
         self.potentials = np.zeros(size)
 
     def get_total_weights(self):
-        """Сумма абсолютных значений всех весов в слое"""
+        """Сумма всех связей в слое"""
         total = 0
-        if self.proximal_weights is not None:
-            total += np.sum(np.abs(self.proximal_weights))
-        total += np.sum(np.abs(self.distal_weights))
-        return total
+        for links in self.proximal_links.values():
+            total += len(links)
+        for links in self.distal_links.values():
+            total += len(links)
+        for links in self.top_down_links.values():
+            total += len(links)
+        return total if total > 0 else 1 # Чтобы не было 0
 
     def get_activity_count(self):
         """Количество активных нейронов"""
@@ -108,31 +125,46 @@ class SDRLayer:
 
     def learn(self, proximal_input, eta=0.01):
         """
-        Обучение весов по правилу Хебба.
+        Обучение связей. Теперь создаем MemoryLink.
         """
-        # Обучаем проксимальные веса: усиливаем связи между активными входами и активными нейронами
         if self.proximal_weights is not None and proximal_input is not None:
-            # Δw = η * (a_i * x_j - γ * w_ij)
-            gamma = 0.001
-            # Используем только положительные входы для обучения
-            pos_input = np.maximum(0, proximal_input)
-            outer_prod = np.outer(self.activations, pos_input)
-            self.proximal_weights += eta * (outer_prod - gamma * self.proximal_weights)
-            # Ограничиваем веса положительными значениями
-            self.proximal_weights = np.maximum(0, self.proximal_weights)
+            active_inputs = np.where(proximal_input > 0)[0]
+            active_neurons = np.where(self.activations > 0)[0]
 
-        # Обучаем дистальные веса (латеральные)
-        outer_distal = np.outer(self.activations, self.activations)
-        np.fill_diagonal(outer_distal, 0)
-        self.distal_weights += eta * (outer_distal - 0.001 * self.distal_weights)
-        self.distal_weights = np.maximum(0, self.distal_weights)
+            for i in active_neurons:
+                for j in active_inputs:
+                    # Создаем новую связь или обновляем существующую
+                    if self.proximal_weights[i, j] == 0:
+                        self.proximal_weights[i, j] = 1
+                        self.proximal_links[i].append(MemoryLink(
+                            target_neuron_id=j,
+                            table_marker=len(proximal_input)
+                        ))
+
+        # Дистальные (латеральные)
+        active_neurons = np.where(self.activations > 0)[0]
+        for i in active_neurons:
+            for j in active_neurons:
+                if i != j and self.distal_weights[i, j] == 0:
+                    self.distal_weights[i, j] = 1
+                    self.distal_links[i].append(MemoryLink(
+                        target_neuron_id=j,
+                        table_marker=self.size
+                    ))
 
     def learn_top_down(self, top_down_input, eta=0.01):
         """
-        Обучение обратных связей.
+        Обучение обратных связей через MemoryLink.
         """
         if self.top_down_weights is not None and top_down_input is not None:
-            # Усиливаем связи между активностью верхнего слоя и текущей активностью
-            outer_prod = np.outer(self.activations, top_down_input)
-            self.top_down_weights += eta * (outer_prod - 0.001 * self.top_down_weights)
-            self.top_down_weights = np.maximum(0, self.top_down_weights)
+            active_top = np.where(top_down_input > 0)[0]
+            active_neurons = np.where(self.activations > 0)[0]
+
+            for i in active_neurons:
+                for j in active_top:
+                    if self.top_down_weights[i, j] == 0:
+                        self.top_down_weights[i, j] = 1
+                        self.top_down_links[i].append(MemoryLink(
+                            target_neuron_id=j,
+                            table_marker=len(top_down_input)
+                        ))

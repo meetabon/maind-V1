@@ -60,9 +60,10 @@ class M1System:
         ]
 
         # Инициализация обратных (top-down) связей
-        self.layer_minus_1.top_down_weights = np.random.uniform(0, 0.05, (32, 64))
-        self.layer_0.top_down_weights = np.random.uniform(0, 0.05, (64, 124))
-        self.layer_plus_1.top_down_weights = np.random.uniform(0, 0.05, (124, 124))
+        # Используем малые веса для старта
+        self.layer_minus_1.top_down_weights = np.random.uniform(0, 0.01, (32, 64))
+        self.layer_0.top_down_weights = np.random.uniform(0, 0.01, (64, 124))
+        self.layer_plus_1.top_down_weights = np.random.uniform(0, 0.01, (124, 124))
 
         self.regions = [NeuralRegion(i, self.meta_params) for i in range(8)]
         self.energy_system = EnergySystem()
@@ -77,7 +78,7 @@ class M1System:
         self.error_history = []
         self.energy_history = []
 
-    def step(self):
+    def step(self, external_input=None):
         """Один шаг симуляции"""
         if not self.alive:
             return False
@@ -87,9 +88,11 @@ class M1System:
         # 1. Обновление среды
         self.environment.update(self.step_count)
 
-        # 2. Получение сигналов из среды (Интернет-стрим)
-        # Получаем SDR текущего символа из интернет-потока
-        env_input = self.environment.streamer.get_next_char_sdr()
+        # 2. Получение сигналов (извне или из среды)
+        if external_input is not None:
+            env_input = external_input
+        else:
+            env_input = self.environment.space.flatten()
 
         # --- ФАЗА 1: ОБРАТНОЕ ПРЕДСКАЗАНИЕ (Сверху Вниз) ---
         # Понятия -> Фразы -> Слова -> Буквы
