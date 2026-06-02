@@ -59,6 +59,11 @@ class M1System:
             self.layer_plus_4
         ]
 
+        # Инициализация обратных (top-down) связей
+        self.layer_minus_1.top_down_weights = np.random.uniform(0, 0.05, (32, 64))
+        self.layer_0.top_down_weights = np.random.uniform(0, 0.05, (64, 124))
+        self.layer_plus_1.top_down_weights = np.random.uniform(0, 0.05, (124, 124))
+
         self.regions = [NeuralRegion(i, self.meta_params) for i in range(8)]
         self.energy_system = EnergySystem()
         self.evolution = EvolutionManager()
@@ -82,33 +87,52 @@ class M1System:
         # 1. Обновление среды
         self.environment.update(self.step_count)
 
-        # 2. Получение сигналов из среды
-        env_input = self.environment.space.flatten()
+        # 2. Получение сигналов из среды (Интернет-стрим)
+        # Получаем SDR текущего символа из интернет-потока
+        env_input = self.environment.streamer.get_next_char_sdr()
 
-        # 3. Обновление SDR-слоев (последовательная активация)
+        # --- ФАЗА 1: ОБРАТНОЕ ПРЕДСКАЗАНИЕ (Сверху Вниз) ---
+        # Понятия -> Фразы -> Слова -> Буквы
+        # Слой +2 (Понятия) дает контекст для +1
+        self.layer_plus_1.update_predictive_state(self.layer_plus_2.activations)
+        # Слой +1 (Фразы) дает контекст для 0
+        self.layer_0.update_predictive_state(self.layer_plus_1.activations)
+        # Слой 0 (Слова) дает контекст для -1 (Буквы) - Эффект Т9
+        self.layer_minus_1.update_predictive_state(self.layer_0.activations)
+
+        # --- ФАЗА 2: ПРЯМАЯ АКТИВАЦИЯ (Снизу Вверх) ---
         # Слой -1 (Буквы)
         act_m1 = self.layer_minus_1.update(env_input)
-        self.layer_minus_1.learn(env_input, eta=self.meta_params['eta'])
 
         # Слой 0 (Слова)
         act_0 = self.layer_0.update(act_m1)
-        self.layer_0.learn(act_m1, eta=self.meta_params['eta'])
 
         # Слой +1 (Фразы)
         act_p1 = self.layer_plus_1.update(act_0)
-        self.layer_plus_1.learn(act_0, eta=self.meta_params['eta'])
 
         # Слой +2 (Понятия)
         act_p2 = self.layer_plus_2.update(act_p1)
-        self.layer_plus_2.learn(act_p1, eta=self.meta_params['eta'])
 
-        # Слой +3 (Резерв 1)
+        # Резервные слои
         act_p3 = self.layer_plus_3.update(act_p2)
-        self.layer_plus_3.learn(act_p2, eta=self.meta_params['eta'])
-
-        # Слой +4 (Резерв 2)
         self.layer_plus_4.update(act_p3)
-        self.layer_plus_4.learn(act_p3, eta=self.meta_params['eta'])
+
+        # --- ФАЗА 3: ОБУЧЕНИЕ (Hebbian Learning) ---
+        eta = self.meta_params['eta']
+        self.layer_minus_1.learn(env_input, eta=eta)
+        self.layer_minus_1.learn_top_down(self.layer_0.activations, eta=eta)
+
+        self.layer_0.learn(act_m1, eta=eta)
+        self.layer_0.learn_top_down(self.layer_plus_1.activations, eta=eta)
+
+        self.layer_plus_1.learn(act_0, eta=eta)
+        self.layer_plus_1.learn_top_down(self.layer_plus_2.activations, eta=eta)
+
+        self.layer_plus_2.learn(act_p1, eta=eta)
+
+        # Обучение резервных слоев
+        self.layer_plus_3.learn(act_p2, eta=eta)
+        self.layer_plus_4.learn(act_p3, eta=eta)
 
         # 4. Получение сигналов из среды для каждой области (старая логика)
         region_signals = self.environment.get_region_signals()

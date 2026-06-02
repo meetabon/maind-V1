@@ -28,6 +28,12 @@ class SDRLayer:
         self.distal_weights = np.random.uniform(0, 0.05, (size, size))
         np.fill_diagonal(self.distal_weights, 0)
 
+        # Обратные (дистальные сверху-вниз) веса для предсказания (contextual feedback)
+        self.top_down_weights = None  # Инициализируется в системе при наличии верхнего слоя
+
+        # Маска предсказания (predictive state)
+        self.predictive_state = np.zeros(size)
+
         # Потенциалы нейронов (входные сигналы до применения kWTA)
         self.potentials = np.zeros(size)
 
@@ -66,24 +72,39 @@ class SDRLayer:
 
     def update(self, proximal_input=None):
         """
-        Обновление состояния слоя.
+        Обновление состояния слоя (Прямая фаза).
         :param proximal_input: Входной вектор от нижнего слоя или среды.
         """
-        # 1. Считаем проксимальный вход
+        # 1. Считаем проксимальный вход (bottom-up)
         if self.proximal_weights is not None and proximal_input is not None:
             self.potentials = np.dot(self.proximal_weights, proximal_input)
         else:
             self.potentials = np.zeros(self.size)
 
-        # 2. Добавляем дистальный вход (предсказание из предыдущего состояния)
-        # В этой версии упростим: дистальные связи влияют на потенциал
+        # 2. Добавляем дистальный вход (внутренняя временная память)
         distal_input = np.dot(self.distal_weights, self.activations)
         self.potentials += distal_input
 
-        # 3. Применяем kWTA
+        # 3. Эффект Т9: Если нейрон был в предсказанном состоянии, снижаем его порог (усиливаем потенциал)
+        # Это позволяет предсказанным паттернам побеждать при kWTA даже при слабом входе
+        self.potentials += self.predictive_state * 0.5
+
+        # 4. Применяем kWTA
         self._apply_kwta()
 
         return self.activations
+
+    def update_predictive_state(self, top_down_input=None):
+        """
+        Обратная фаза: расчет предсказаний на основе сигнала сверху.
+        """
+        if self.top_down_weights is not None and top_down_input is not None:
+            raw_prediction = np.dot(self.top_down_weights, top_down_input)
+            # Бинаризуем предсказание (нейрон либо ожидает вход, либо нет)
+            self.predictive_state = (raw_prediction > 0.1).astype(float)
+        else:
+            self.predictive_state = np.zeros(self.size)
+        return self.predictive_state
 
     def learn(self, proximal_input, eta=0.01):
         """
@@ -105,3 +126,13 @@ class SDRLayer:
         np.fill_diagonal(outer_distal, 0)
         self.distal_weights += eta * (outer_distal - 0.001 * self.distal_weights)
         self.distal_weights = np.maximum(0, self.distal_weights)
+
+    def learn_top_down(self, top_down_input, eta=0.01):
+        """
+        Обучение обратных связей.
+        """
+        if self.top_down_weights is not None and top_down_input is not None:
+            # Усиливаем связи между активностью верхнего слоя и текущей активностью
+            outer_prod = np.outer(self.activations, top_down_input)
+            self.top_down_weights += eta * (outer_prod - 0.001 * self.top_down_weights)
+            self.top_down_weights = np.maximum(0, self.top_down_weights)
