@@ -9,6 +9,7 @@ from neuron import NeuralRegion
 from energy import EnergySystem
 from evolution import EvolutionManager
 from sdr_memory import SDRLayer
+from checkpoint_system import MemoryPersistence
 
 class M1System:
     def __init__(self, meta_params=None):
@@ -18,10 +19,13 @@ class M1System:
             self.meta_params = {
                 'eta': 0.01,      # скорость обучения
                 'lambda': 0.1,    # вес ошибки предсказания
-                'long_link_prob': 0.05  # склонность к дальним связям
+                'long_link_prob': 0.05,  # склонность к дальним связям
+                'anomaly_threshold': 0.3  # Порог аномалии
             }
         else:
             self.meta_params = meta_params.copy()
+            if 'anomaly_threshold' not in self.meta_params:
+                self.meta_params['anomaly_threshold'] = 0.3
 
         # Компоненты системы
         self.environment = Environment()
@@ -68,6 +72,10 @@ class M1System:
         self.regions = [NeuralRegion(i, self.meta_params) for i in range(8)]
         self.energy_system = EnergySystem()
         self.evolution = EvolutionManager()
+        self.persistence = MemoryPersistence()
+
+        # Флаги состояния
+        self.need_teacher = False
 
         # Состояние системы
         self.energy = len(self.regions) * 32 * 0.5  # N_neurons * 0.5
@@ -163,6 +171,19 @@ class M1System:
         # 9. Штраф за ошибки предсказания
         error_penalty = self.meta_params['lambda'] * total_error
         self.energy -= error_penalty
+
+        # 10. Детекция аномалий (HTM Anomaly)
+        # Считаем несовпадение реальной активации и предсказания на слое -1
+        # overlap = (real * prediction).sum() / real.sum()
+        real_act = self.layer_minus_1.activations
+        pred_act = self.layer_minus_1.predictive_state
+        if real_act.sum() > 0:
+            overlap = (real_act * pred_act).sum() / real_act.sum()
+            anomaly_score = 1.0 - overlap
+            self.need_teacher = anomaly_score > self.meta_params['anomaly_threshold']
+
+        # 11. Персистентность (сохранение состояния)
+        self.persistence.save_state(self)
 
         # 8. Проверка выживания
         if self.energy <= 0:
