@@ -1,6 +1,7 @@
 import sys
 import os
 import numpy as np
+import time
 
 # Добавляем путь к m1_v11 для импортов
 sys.path.append(os.path.join(os.getcwd(), 'm1_v11'))
@@ -25,9 +26,13 @@ def main():
     if system.persistence.load_state(system):
         print("Возобновление обучения из сохраненного состояния.")
 
-    max_steps = 1000
+    # max_steps = 1000
+    start_time = time.time()
+    test_duration = 60 # секунд
+    step = 0
 
-    for step in range(max_steps):
+    while time.time() - start_time < test_duration:
+        step += 1
         # 0. Проверка планировщика
         new_task = scheduler.check_for_new_tasks()
         if new_task:

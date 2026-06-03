@@ -26,9 +26,23 @@ def index():
 
 @app.route('/api/metrics')
 def get_metrics():
-    # В реальной системе здесь будет чтение из общей памяти или сокета ядра
-    # Для теста вернем текущие значения
-    return jsonify(latest_metrics)
+    # Чтение метрик из файла результатов (упрощенная IPC)
+    metrics = latest_metrics.copy()
+    if os.path.exists('m1_v11_results.csv'):
+        try:
+            with open('m1_v11_results.csv', 'r') as f:
+                lines = f.readlines()
+                if len(lines) > 1:
+                    last_line = lines[-1].strip().split(',')
+                    # Порядок в CSV: step, energy, ..., sdr_act_m1, sdr_act_0, sdr_act_p1, ...
+                    metrics['step'] = int(last_line[0])
+                    metrics['energy'] = float(last_line[1])
+                    metrics['layers']['m1'] = float(last_line[8])
+                    metrics['layers']['0'] = float(last_line[9])
+                    metrics['layers']['p1'] = float(last_line[10])
+        except Exception:
+            pass
+    return jsonify(metrics)
 
 @app.route('/api/schedule', methods=['POST'])
 def schedule_task():

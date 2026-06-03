@@ -31,8 +31,8 @@ class EnergySystem:
 
         return total_cost
 
-    def calculate_gain(self, regions, region_signals):
-        """Расчет поступления энергии от среды"""
+    def calculate_gain(self, regions, region_signals, sdr_layers=None):
+        """Расчет поступления энергии от среды и SDR слоев"""
         total_gain = 0
 
         for i, region in enumerate(regions):
@@ -47,6 +47,14 @@ class EnergySystem:
                     total_gain += 1.0
                     # Ячейка поглощается (становится 0)
                     region_space[x, y, z] = 0
+
+        # Дополнительный доход за успешные предсказания в SDR слоях
+        if sdr_layers:
+            for layer in sdr_layers:
+                # Если нейрон активен и он был предсказан (predictive_state)
+                # Даем бонус энергии
+                matches = (layer.activations * layer.predictive_state).sum()
+                total_gain += matches * 0.5
 
         return total_gain
 

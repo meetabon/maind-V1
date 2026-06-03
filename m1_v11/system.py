@@ -163,7 +163,7 @@ class M1System:
             energy_cost += 0.001 * layer.get_total_weights()
 
         # 7. Получение энергии от среды
-        energy_gain = self.energy_system.calculate_gain(self.regions, region_signals)
+        energy_gain = self.energy_system.calculate_gain(self.regions, region_signals, sdr_layers=self.sdr_layers)
 
         # 8. Обновление энергии
         self.energy += energy_gain - energy_cost
