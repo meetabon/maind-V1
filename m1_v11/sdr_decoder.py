@@ -9,14 +9,17 @@ class SDRDecoder:
         }
 
     def learn_mapping(self, layer_id, activations, label):
-        """Обучение маппинга для конкретной активации"""
+        """Автоматическая калибровка: запись паттерна в словарь"""
         indices = tuple(sorted(np.where(activations > 0)[0]))
-        if not indices:
+        if not indices or not label:
             return
 
         key = "minus_1" if layer_id == -1 else str(layer_id)
         if key in self.vocabulary:
-            self.vocabulary[key][indices] = label
+            # Если для этого паттерна еще нет метки, записываем
+            # (Или обновляем, если Учитель подает заведомо верные данные)
+            if indices not in self.vocabulary[key]:
+                self.vocabulary[key][indices] = label
 
     def decode_layer(self, layer_id: str, activations: np.ndarray) -> str:
         """Расшифровка активации слоя"""
