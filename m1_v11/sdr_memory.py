@@ -48,6 +48,9 @@ class SDRLayer:
         # Маска предсказания (predictive state)
         self.predictive_state = np.zeros(size)
 
+        # Флаг изменения весов
+        self.weights_changed = False
+
         # Потенциалы нейронов (входные сигналы до применения kWTA)
         self.potentials = np.zeros(size)
 
@@ -127,6 +130,7 @@ class SDRLayer:
         """
         Обучение связей. Теперь создаем MemoryLink.
         """
+        self.weights_changed = False
         if self.proximal_weights is not None and proximal_input is not None:
             active_inputs = np.where(proximal_input > 0)[0]
             active_neurons = np.where(self.activations > 0)[0]
@@ -141,6 +145,7 @@ class SDRLayer:
                             target_neuron_id=int(j),
                             table_marker=len(proximal_input)
                         ))
+                        self.weights_changed = True
 
         # Дистальные (латеральные)
         active_neurons = np.where(self.activations > 0)[0]
@@ -152,6 +157,7 @@ class SDRLayer:
                         target_neuron_id=int(j),
                         table_marker=self.size
                     ))
+                    self.weights_changed = True
 
     def learn_top_down(self, top_down_input, eta=0.01):
         """
@@ -169,3 +175,4 @@ class SDRLayer:
                             target_neuron_id=int(j),
                             table_marker=len(top_down_input)
                         ))
+                        self.weights_changed = True

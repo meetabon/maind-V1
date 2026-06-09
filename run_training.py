@@ -11,25 +11,35 @@ from Learning.streamer import InternetStreamer
 from Learning.scheduler import TaskScheduler
 from logger import SimulationLogger
 from sdr_decoder import SDRDecoder
+from checkpoint_system import MemoryPersistence
 
 def main():
     print("=== Запуск внешнего обучения M1 (Internet Streaming) ===")
 
     # Инициализация систем
-    system = M1System()
+    persistence = MemoryPersistence(filepath="memory_state.pkl")
+
+    try:
+        loaded_system = persistence.load(M1System)
+        if loaded_system:
+            system = loaded_system
+            print("Возобновление обучения из memory_state.pkl")
+        else:
+            system = M1System()
+    except Exception as e:
+        print(f"Ошибка загрузки: {e}. Создание новой системы.")
+        system = M1System()
+
     streamer = InternetStreamer()
     scheduler = TaskScheduler()
     logger = SimulationLogger()
     decoder = SDRDecoder()
 
-    # Автоматическая загрузка чекпоинта
-    if system.persistence.load_state(system):
-        print("Возобновление обучения из сохраненного состояния.")
-
     # max_steps = 1000
     start_time = time.time()
     test_duration = 60 # секунд
     step = 0
+    last_progress_time = start_time
 
     while time.time() - start_time < test_duration:
         step += 1
@@ -38,27 +48,30 @@ def main():
         if new_task:
             print(f"ПЛАНИРОВЩИК: Новое задание - {new_task['instruction']}")
 
-        # 1. Получаем SDR токен от Учителя
-        env_input, char = streamer.get_next_char_sdr()
-
-        if char is None:
-            print("Поток данных завершен.")
-            break
+        # 1. Логика SSD/Процессор: Получаем SDR токен только при аномалии или на первом шаге
+        if step == 1 or system.NEED_TEACHER:
+            env_input, char = streamer.get_next_char_sdr()
+            if char is None:
+                print("Поток данных завершен.")
+                break
+        else:
+            # Режим "мышления" (внутренний цикл)
+            env_input = None
+            char = None
 
         # 2. Передаем сигнал в изолированную память
         alive = system.step(external_input=env_input)
 
-        # 2.5 Обучение декодера и логирование активности
+        # 2.5 Обучение декодера и вывод лога
         if char:
             decoder.learn_mapping(-1, system.layer_minus_1.activations, char)
-            # Упрощенно: "слово" формируется из накопленных символов (в HTM это сложнее)
-            # Для отчета будем декодировать текущий символ
-            decoded_char = decoder.decode_layer(-1, system.layer_minus_1.activations)
-            print(f"Шаг {step} | Вход: '{char}' | SDR Декодер: '{decoded_char}' | Anomaly: {system.need_teacher}")
+
+        decoded_out = decoder.decode_layer('minus_1', system.layer_minus_1.activations)
+        print(f"Шаг {step} | Layer -1: {decoded_out} | Anomaly: {system.NEED_TEACHER}")
 
         # Обработка аномалии (флаг NEED_TEACHER)
-        if system.need_teacher:
-            print(f"!!! АНОМАЛИЯ на шаге {step}: Запрос к Учителю для дообучения.")
+        if system.NEED_TEACHER:
+            print(f"!!! АНОМАЛИЯ: Вызов Учителя.")
 
         # 3. Логирование
         logger.log_step(step, system)
@@ -67,8 +80,12 @@ def main():
             print(f"Шаг {step}: Система умерла (энергия = {system.energy:.2f})")
             break
 
-        if step % 100 == 0:
-            print(f"Шаг {step}: Обработан символ '{char}', E={system.energy:.2f}")
+        # Прогресс раз в 60 секунд
+        current_time = time.time()
+        if current_time - last_progress_time >= 60:
+            elapsed = int(current_time - start_time)
+            print(f"Прогресс: прошло {elapsed}с... Шаг {step}, E={system.energy:.2f}")
+            last_progress_time = current_time
 
     logger.save_to_csv("m1_v11_results.csv")
     print("Обучение завершено. Результаты сохранены в m1_v11_results.csv")

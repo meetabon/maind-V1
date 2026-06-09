@@ -1,16 +1,9 @@
-# Структурная карта связей ядра M1 и системы обучения
+# Structural Code Map (Signal Flow)
 
-## 1. Схема связей ядра (Core SSD)
-- **m1_v11/system.py** (строки 88-100, фаза Top-Down предсказания) <-> Привязаны к **m1_v11/sdr_memory.py** (строки 108-118, метод `update_predictive_state`).
-- **m1_v11/system.py** (строки 102-118, фаза Прямой активации) <-> Привязаны к **m1_v11/sdr_memory.py** (строки 71-106, метод `update`).
-- **m1_v11/system.py** (строки 121-137, фаза Hebbian Learning) <-> Привязаны к **m1_v11/sdr_memory.py** (строки 120-164, методы `learn` и `learn_top_down`).
-- **m1_v11/system.py** (строки 182-183, сохранение состояния) <-> Привязаны к **m1_v11/checkpoint_system.py** (строки 8-30, метод `save_state`).
-
-## 2. Схема обучения (Teacher/Processor)
-- **Learning/streamer.py** (строки 35-51, генерация SDR токенов) <-> Привязаны к **run_training.py** (строки 36, получение внешнего входа).
-- **run_training.py** (строки 39, передача сигнала) <-> Привязана к **m1_v11/system.py** (строки 80-84, прием `external_input`).
-- **run_training.py** (строки 43-48, декодирование активности) <-> Привязана к **m1_v11/sdr_decoder.py** (строки 16-44, метод `decode_layer`).
-- **run_training.py** (строки 51, детекция аномалий) <-> Привязана к **m1_v11/system.py** (строки 174-180, расчет `anomaly_score`).
-
-## 3. Модули данных
-- **m1_v11/sdr_memory.py** (структура `MemoryLink`) <-> Используется в **m1_v11/checkpoint_system.py** для бинарной сериализации состояния связей.
+[Learning/streamer.py] -> [Lines 35-51] -> [get_next_char_sdr] -> вызывает/зависит от -> [run_training.py] -> [Line 51]
+[run_training.py] -> [Lines 41-61] -> [main loop] -> вызывает/зависит от -> [m1_v11/system.py] -> [Line 85] (step)
+[m1_v11/system.py] -> [Lines 85-200] -> [step] -> вызывает/зависит от -> [m1_v11/sdr_memory.py] -> [Line 71] (update)
+[m1_v11/system.py] -> [Lines 102-120] -> [Top-Down Phase] -> вызывает/зависит от -> [m1_v11/sdr_memory.py] -> [Line 108] (update_predictive_state)
+[m1_v11/system.py] -> [Lines 135-160] -> [Learning Phase] -> вызывает/зависит от -> [m1_v11/sdr_memory.py] -> [Lines 129, 161] (learn, learn_top_down)
+[m1_v11/system.py] -> [Line 185] -> [Anomaly Check] -> вызывает/зависит от -> [run_training.py] -> [Line 51] (NEED_TEACHER switch)
+[m1_v11/sdr_memory.py] -> [Lines 145, 175] -> [MemoryLink creation] -> вызывает/зависит от -> [m1_v11/checkpoint_system.py] -> [Line 10] (save)

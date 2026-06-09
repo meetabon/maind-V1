@@ -12,6 +12,11 @@ from sdr_memory import SDRLayer
 from checkpoint_system import MemoryPersistence
 
 class M1System:
+    @property
+    def weights_changed(self):
+        """Агрегированный флаг изменения весов во всех слоях"""
+        return any(layer.weights_changed for layer in self.sdr_layers)
+
     def __init__(self, meta_params=None):
         """Инициализация системы M1"""
         # Мета-параметры (наследуемые при размножении)
@@ -76,6 +81,7 @@ class M1System:
 
         # Флаги состояния
         self.need_teacher = False
+        self.NEED_TEACHER = False # Для обратной совместимости с новыми требованиями
 
         # Состояние системы
         self.energy = len(self.regions) * 32 * 0.5  # N_neurons * 0.5
@@ -173,17 +179,18 @@ class M1System:
         self.energy -= error_penalty
 
         # 10. Детекция аномалий (HTM Anomaly)
-        # Считаем несовпадение реальной активации и предсказания на слое -1
-        # overlap = (real * prediction).sum() / real.sum()
-        real_act = self.layer_minus_1.activations
-        pred_act = self.layer_minus_1.predictive_state
-        if real_act.sum() > 0:
-            overlap = (real_act * pred_act).sum() / real_act.sum()
-            anomaly_score = 1.0 - overlap
-            self.need_teacher = anomaly_score > self.meta_params['anomaly_threshold']
+        # anomaly_score = np.mean(np.abs(self.layer_minus_1.potentials - self.layer_minus_1.predictive_state))
+        # Примечание: predictive_state бинаризован, potentials - сырые суммы.
+        # Приведем к одной шкале для адекватности mean(abs).
+        norm_potentials = self.layer_minus_1.potentials / (self.layer_minus_1.potentials.max() if self.layer_minus_1.potentials.max() > 0 else 1.0)
+        anomaly_score = np.mean(np.abs(norm_potentials - self.layer_minus_1.predictive_state))
+
+        self.NEED_TEACHER = anomaly_score > self.meta_params.get('anomaly_threshold', 0.4)
+        self.need_teacher = self.NEED_TEACHER # Синхронизация флагов
 
         # 11. Персистентность (сохранение состояния)
-        self.persistence.save_state(self)
+        if self.weights_changed:
+            self.persistence.save(self)
 
         # 8. Проверка выживания
         if self.energy <= 0:

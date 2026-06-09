@@ -3,18 +3,18 @@ import os
 import numpy as np
 
 class MemoryPersistence:
-    def __init__(self, checkpoint_path='m1_v11/memory_checkpoint.bin'):
-        self.checkpoint_path = checkpoint_path
+    def __init__(self, filepath="memory_state.pkl"):
+        self.filepath = filepath
 
-    def save_state(self, system):
-        """Сохранение состояния всех слоев системы"""
+    def save(self, system_instance):
+        """Сохранение весов и MemoryLink всех слоев системы"""
         state = {
-            'step_count': system.step_count,
-            'energy': system.energy,
+            'step_count': system_instance.step_count,
+            'energy': system_instance.energy,
             'layers': []
         }
 
-        for layer in system.sdr_layers:
+        for layer in system_instance.sdr_layers:
             layer_data = {
                 'name': layer.name,
                 'proximal_weights': layer.proximal_weights,
@@ -26,19 +26,19 @@ class MemoryPersistence:
             }
             state['layers'].append(layer_data)
 
-        with open(self.checkpoint_path, 'wb') as f:
+        with open(self.filepath, 'wb') as f:
             pickle.dump(state, f)
-        # print(f"Checkpoint saved to {self.checkpoint_path}")
 
-    def load_state(self, system):
-        """Загрузка состояния системы"""
-        if not os.path.exists(self.checkpoint_path):
-            return False
+    def load(self, system_class, meta_params=None):
+        """Загрузка состояния и создание экземпляра системы"""
+        if not os.path.exists(self.filepath):
+            return None
 
         try:
-            with open(self.checkpoint_path, 'rb') as f:
+            with open(self.filepath, 'rb') as f:
                 state = pickle.load(f)
 
+            system = system_class(meta_params)
             system.step_count = state['step_count']
             system.energy = state['energy']
 
@@ -51,8 +51,8 @@ class MemoryPersistence:
                 layer.distal_links = layer_data['distal_links']
                 layer.top_down_links = layer_data['top_down_links']
 
-            print(f"Memory state loaded from {self.checkpoint_path}")
-            return True
+            print(f"Memory state loaded from {self.filepath}")
+            return system
         except Exception as e:
-            print(f"Error loading checkpoint: {e}")
-            return False
+            print(f"Error loading memory state: {e}")
+            return None
