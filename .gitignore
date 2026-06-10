@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+*.pkl
+*.bin
+*.csv
+*.log
+.DS_Store
+.env
+.venv/
+env/
+venv/
+node_modules/
+training.pid
+ui.log
+tunnel.log
+training_600s.log

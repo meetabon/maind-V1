@@ -10,14 +10,8 @@ from energy import EnergySystem
 from evolution import EvolutionManager
 from sdr_memory import SDRLayer
 from checkpoint_system import MemoryPersistence
-from time_hardware import HardwareTimeCore
 
 class M1System:
-    @property
-    def weights_changed(self):
-        """Агрегированный флаг изменения весов во всех слоях"""
-        return any(layer.weights_changed for layer in self.sdr_layers)
-
     def __init__(self, meta_params=None):
         """Инициализация системы M1"""
         # Мета-параметры (наследуемые при размножении)
@@ -82,11 +76,6 @@ class M1System:
 
         # Флаги состояния
         self.need_teacher = False
-        self.NEED_TEACHER = False # Для обратной совместимости с новыми требованиями
-
-        # Биологическое время
-        self.biological_tick = 0
-        self.snapshot_log = []
 
         # Состояние системы
         self.energy = len(self.regions) * 32 * 0.5  # N_neurons * 0.5
@@ -184,21 +173,17 @@ class M1System:
         self.energy -= error_penalty
 
         # 10. Детекция аномалий (HTM Anomaly)
-        # anomaly_score = np.mean(np.abs(self.layer_minus_1.potentials - self.layer_minus_1.predictive_state))
-        # Примечание: predictive_state бинаризован, potentials - сырые суммы.
-        # Приведем к одной шкале для адекватности mean(abs).
-        norm_potentials = self.layer_minus_1.potentials / (self.layer_minus_1.potentials.max() if self.layer_minus_1.potentials.max() > 0 else 1.0)
-        anomaly_score = np.mean(np.abs(norm_potentials - self.layer_minus_1.predictive_state))
-
-        self.NEED_TEACHER = anomaly_score > self.meta_params.get('anomaly_threshold', 0.4)
-        self.need_teacher = self.NEED_TEACHER # Синхронизация флагов
+        # Считаем несовпадение реальной активации и предсказания на слое -1
+        # overlap = (real * prediction).sum() / real.sum()
+        real_act = self.layer_minus_1.activations
+        pred_act = self.layer_minus_1.predictive_state
+        if real_act.sum() > 0:
+            overlap = (real_act * pred_act).sum() / real_act.sum()
+            anomaly_score = 1.0 - overlap
+            self.need_teacher = anomaly_score > self.meta_params['anomaly_threshold']
 
         # 11. Персистентность (сохранение состояния)
-        if self.weights_changed:
-            self.persistence.save(self)
-
-        # 12. Сдвиг биологического времени
-        self._check_for_bio_tick_shift()
+        self.persistence.save_state(self)
 
         # 8. Проверка выживания
         if self.energy <= 0:
@@ -241,24 +226,3 @@ class M1System:
         """Примитивная проверка самосознания (для логирования)"""
         # TODO: реализовать отслеживание инварианта "я/не-я"
         return False
-
-    def get_all_active_neuron_indices(self):
-        """Возвращает список индексов всех активных нейронов во всех слоях"""
-        active_indices = {}
-        for layer in self.sdr_layers:
-            active_indices[layer.name] = np.where(layer.activations > 0)[0].tolist()
-        return active_indices
-
-    def _check_for_bio_tick_shift(self):
-        """Сдвиг биологического такта при наличии активности"""
-        total_activity = sum(layer.get_activity_count() for layer in self.sdr_layers)
-
-        if total_activity > 0:
-            self.biological_tick += 1
-            # Создание снимка состояния
-            snapshot = {
-                "bio_tick": self.biological_tick,
-                "system_time": HardwareTimeCore().get_current_timestamp(),
-                "active_neurons_addresses": self.get_all_active_neuron_indices()
-            }
-            self.snapshot_log.append(snapshot)
