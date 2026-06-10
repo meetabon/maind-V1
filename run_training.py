@@ -70,9 +70,10 @@ def main():
 
         decoded_out = decoder.decode_layer('minus_1', system.layer_minus_1.activations)
         activity_count = sum(layer.get_activity_count() for layer in system.sdr_layers)
+        hw_time = hw_clock.get_current_timestamp()
+        char_display = char if char is not None else ""
 
-        print(f"Шаг {step} | Bio-Tick: {system.biological_tick} | HW-Time: {hw_clock.get_current_timestamp()} | Активность: {activity_count}")
-        print(f"  Layer -1: {decoded_out} | Anomaly: {system.NEED_TEACHER}")
+        print(f"Шаг {step} | Bio-Tick: {system.biological_tick} | HW-Time: {hw_time} | Активность: {activity_count} | Вход: '{char_display}' | Декодер: '{decoded_out}' | Anomaly: {system.NEED_TEACHER}")
 
         # Обработка аномалии (флаг NEED_TEACHER)
         if system.NEED_TEACHER:
