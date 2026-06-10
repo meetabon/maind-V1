@@ -12,6 +12,7 @@ from Learning.scheduler import TaskScheduler
 from logger import SimulationLogger
 from sdr_decoder import SDRDecoder
 from checkpoint_system import MemoryPersistence
+from time_hardware import HardwareTimeCore
 
 def main():
     print("=== Запуск внешнего обучения M1 (Internet Streaming) ===")
@@ -34,6 +35,7 @@ def main():
     scheduler = TaskScheduler()
     logger = SimulationLogger()
     decoder = SDRDecoder()
+    hw_clock = HardwareTimeCore()
 
     # max_steps = 1000
     start_time = time.time()
@@ -67,7 +69,10 @@ def main():
             decoder.learn_mapping(-1, system.layer_minus_1.activations, char)
 
         decoded_out = decoder.decode_layer('minus_1', system.layer_minus_1.activations)
-        print(f"Шаг {step} | Layer -1: {decoded_out} | Anomaly: {system.NEED_TEACHER}")
+        activity_count = sum(layer.get_activity_count() for layer in system.sdr_layers)
+
+        print(f"Шаг {step} | Bio-Tick: {system.biological_tick} | HW-Time: {hw_clock.get_current_timestamp()} | Активность: {activity_count}")
+        print(f"  Layer -1: {decoded_out} | Anomaly: {system.NEED_TEACHER}")
 
         # Обработка аномалии (флаг NEED_TEACHER)
         if system.NEED_TEACHER:

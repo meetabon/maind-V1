@@ -10,6 +10,7 @@ from energy import EnergySystem
 from evolution import EvolutionManager
 from sdr_memory import SDRLayer
 from checkpoint_system import MemoryPersistence
+from time_hardware import HardwareTimeCore
 
 class M1System:
     @property
@@ -82,6 +83,10 @@ class M1System:
         # Флаги состояния
         self.need_teacher = False
         self.NEED_TEACHER = False # Для обратной совместимости с новыми требованиями
+
+        # Биологическое время
+        self.biological_tick = 0
+        self.snapshot_log = []
 
         # Состояние системы
         self.energy = len(self.regions) * 32 * 0.5  # N_neurons * 0.5
@@ -192,6 +197,9 @@ class M1System:
         if self.weights_changed:
             self.persistence.save(self)
 
+        # 12. Сдвиг биологического времени
+        self._check_for_bio_tick_shift()
+
         # 8. Проверка выживания
         if self.energy <= 0:
             self.alive = False
@@ -233,3 +241,24 @@ class M1System:
         """Примитивная проверка самосознания (для логирования)"""
         # TODO: реализовать отслеживание инварианта "я/не-я"
         return False
+
+    def get_all_active_neuron_indices(self):
+        """Возвращает список индексов всех активных нейронов во всех слоях"""
+        active_indices = {}
+        for layer in self.sdr_layers:
+            active_indices[layer.name] = np.where(layer.activations > 0)[0].tolist()
+        return active_indices
+
+    def _check_for_bio_tick_shift(self):
+        """Сдвиг биологического такта при наличии активности"""
+        total_activity = sum(layer.get_activity_count() for layer in self.sdr_layers)
+
+        if total_activity > 0:
+            self.biological_tick += 1
+            # Создание снимка состояния
+            snapshot = {
+                "bio_tick": self.biological_tick,
+                "system_time": HardwareTimeCore().get_current_timestamp(),
+                "active_neurons_addresses": self.get_all_active_neuron_indices()
+            }
+            self.snapshot_log.append(snapshot)
